@@ -1,4 +1,5 @@
 let User = require('../models/user');
+let Follow = require('../models/follow');
 const bcrypt = require('bcrypt-nodejs');
 const jwt = require('../services/jwt');
 const mongoosePaginate = require('mongoose-pagination');
@@ -135,11 +136,35 @@ function getUser(req, res) {
             });
         }
 
-        return res.status(200).send({
-            user
+        followThisUser(req.user.sub, userId).then( (value) => {
+            user.password = undefined;
+            return res.status(200).send({
+                user,
+                following: value.following,
+                followed: value.followed
+            });
         });
     });
 }
+
+async function followThisUser(identity_user_id, user_id) {
+    let following = await Follow.findOne({user: identity_user_id, followed: user_id}, (err, follow) => {
+
+        if (err) return new throwError(err);
+        return follow;
+    });
+
+    let followed = await Follow.findOne({user: user_id, followed: identity_user_id}, (err, follow) => {
+
+        if (err) return new throwError(err);
+        return follow;
+    });
+
+    return {
+        following,
+        followed
+    };
+} 
 
 // Obtener los usuarios con paginación
 function getUsers(req, res) {
@@ -165,12 +190,87 @@ function getUsers(req, res) {
             });
         }
 
-        return res.status(200).send({
-            users,
-            total,
-            pages: Math.ceil(total/itemsPerPage)
+        followUserIds(identity_user_id).then( value => {
+            return res.status(200).send({
+                users,
+                user_following: value.following,
+                user_follo_me: value.followed,
+                total,
+                pages: Math.ceil(total/itemsPerPage)
+            });
         });
     });
+}
+
+async function followUserIds(user_id) {
+    let following = await Follow.find({user: user_id}).select({'_id':0 ,'_v':0, 'user':0})
+    .exec().then(following => {
+        let follow_clean = [];
+
+        following.forEach(follow => {
+            // Guardar los ids de los usuarios que sigo
+            follow_clean.push(follow.followed);
+        });
+
+        return follow_clean;
+    })
+    .catch(err => {
+        return new throwError(err);
+    });
+
+    let followed = await Follow.find({followed: user_id}).select({'_id':0 ,'_v':0, 'followed':0})
+    .exec().then(followed => {
+        let follow_clean = [];
+
+        followed.forEach(follow => {
+            // Guarda los usuarios que yo sigo
+            follow_clean.push(follow.user);
+        });
+
+        return follow_clean;
+    })
+    .catch(err => {
+        return new throwError(err);
+    });
+
+    return {
+        following,
+        followed
+    };
+}
+
+// Contador de los usuarios que seguimos, que nos siguen y las publicaciones que tenemos
+function getCounters(req, res) {
+    let userId = req.user.sub;
+
+    if (req.params.id) {
+        userId = req.params.id;
+    }
+    
+    getCountFollow(userId).then( value => {
+        return res.status(200).send({
+            value
+        });
+    });
+}
+
+async function getCountFollow(user_id) {
+    let following = await Follow.countDocuments({user: user_id}, (err, count) => {
+        if (err) return new throwError(err);
+
+        return count;
+    });
+
+    let followed = await Follow.countDocuments({followed: user_id}, (err, count) => {
+        if (err) return new throwError(err);
+
+        return count;
+    });
+
+    return{
+        following,
+        followed
+    };
 }
 
 // Actualizar Usuario
@@ -289,6 +389,7 @@ module.exports = {
     loginUser,
     getUser,
     getUsers,
+    getCounters,
     updateUser,
     uploadImage,
     getImageFile
