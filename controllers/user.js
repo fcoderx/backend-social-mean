@@ -1,4 +1,6 @@
 let User = require('../models/user');
+let Publication = require('../models/publication');
+
 let Follow = require('../models/follow');
 const bcrypt = require('bcrypt-nodejs');
 const jwt = require('../services/jwt');
@@ -267,9 +269,16 @@ async function getCountFollow(user_id) {
         return count;
     });
 
+    let publications = await Publication.countDocuments({user: user_id}, (err, count) => {
+        if (err) return new throwError(err);
+
+        return count;
+    });
+
     return{
         following,
-        followed
+        followed,
+        publications
     };
 }
 
@@ -359,7 +368,7 @@ function uploadImage(req, res) {
     }
 }
 
-function removeImages(res,file_path, message) {
+function removeImages(res, file_path, message) {
     fs.unlink(file_path, (err) => {
         return res.status(200).send({
             message: message
